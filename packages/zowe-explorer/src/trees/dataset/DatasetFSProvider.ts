@@ -507,10 +507,9 @@ export class DatasetFSProvider extends BaseProvider implements vscode.FileSystem
             this.createDirectory(profileUri);
         }
 
+        const urlQuery = new URLSearchParams(uri.query);
         if (uriInfo.isRoot) {
             // profile entry; check if "pattern" filter is in query.
-
-            const urlQuery = new URLSearchParams(uri.query);
             if (!urlQuery.has("pattern")) {
                 return this._lookupAsDirectory(profileUri, false);
             }
@@ -518,7 +517,7 @@ export class DatasetFSProvider extends BaseProvider implements vscode.FileSystem
             return this.fetchEntriesForProfile(uri, uriInfo, urlQuery.get("pattern"));
         } else {
             // data set or one of its members
-            return this.fetchDataset(uri, uriInfo);
+            return this.fetchDataset(uri, uriInfo, urlQuery.get("fetch") === "true");
         }
     }
 
