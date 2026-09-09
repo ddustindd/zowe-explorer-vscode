@@ -704,6 +704,7 @@ describe("DatasetFSProvider", () => {
 
             dateNowSpy.mockRestore();
         });
+
     });
     describe("readFile", () => {
         it("throws an error if the entry does not have a profile", async () => {
@@ -1359,6 +1360,43 @@ describe("DatasetFSProvider", () => {
             expect(psEntry.data).toBe(newContents);
         });
 
+        it("sets wasAccessed=false on a PS after a successful upload so the next read re-fetches from mainframe", async () => {
+            const mockMvsApi = {
+                uploadFromBuffer: vi.fn().mockResolvedValue({
+                    apiResponse: { etag: "NEWETAG" },
+                }),
+                dataSet: vi.fn().mockResolvedValue(dsResponseMock),
+            };
+            vi.spyOn(ZoweExplorerApiRegister, "getMvsApi").mockReturnValue(mockMvsApi as any);
+            const psEntry = { ...testEntries.ps, wasAccessed: true };
+            const session = {
+                ...testEntries.session,
+                entries: new Map([[testEntries.ps.name, psEntry]]),
+            };
+            vi.spyOn(DatasetFSProvider.instance as any, "lookupParentDirectory").mockReturnValue(session);
+            await DatasetFSProvider.instance.writeFile(testUris.ps, new Uint8Array([1, 2, 3]), { create: false, overwrite: true });
+            expect(session.entries.get(testEntries.ps.name)!.wasAccessed).toBe(false);
+        });
+
+        it("does NOT clear wasAccessed on a PDS member after upload (PDS members are invalidated via fetchEntriesForDataset)", async () => {
+            const mockMvsApi = {
+                uploadFromBuffer: vi.fn().mockResolvedValue({
+                    apiResponse: { etag: "NEWETAG" },
+                }),
+                allMembers: vi.fn().mockResolvedValue(dsResponseMock),
+            };
+            vi.spyOn(ZoweExplorerApiRegister, "getMvsApi").mockReturnValue(mockMvsApi as any);
+            const memberEntry = { ...testEntries.pdsMember, wasAccessed: true };
+            const pdsParent = {
+                ...testEntries.pds,
+                stats: {} as any,
+                entries: new Map([["MEMBER1", memberEntry]]),
+            };
+            vi.spyOn(DatasetFSProvider.instance as any, "lookupParentDirectory").mockReturnValue(pdsParent);
+            await DatasetFSProvider.instance.writeFile(testUris.pdsMember, new Uint8Array([1, 2, 3]), { create: false, overwrite: true });
+            expect(pdsParent.entries.get("MEMBER1")!.wasAccessed).toBe(true);
+        });
+
         it("updates an empty, unaccessed PS entry in the FSP without sending data", async () => {
             vi.spyOn(ZoweExplorerApiRegister, "getMvsApi").mockReturnValue({
                 dataSet: vi.fn().mockResolvedValue(dsResponseMock),
@@ -1832,9 +1870,17 @@ describe("DatasetFSProvider", () => {
                 expect(fakePs.wasAccessed).toBe(false);
             });
 
-            it("should update mtime when m4date is provided without separate mtime field", async () => {
+            it("should invalidate cache but NOT bump mtime when m4date is present without mtime (day-level precision only)", async () => {
+                // Regression test for same-day edit refresh: non-ISPF edits return only m4date (date
+                // only, no intra-day mtime). Before this fix the provider computed a day-precision
+                // timestamp and compared it against entry.mtime — same day → same value → no
+                // invalidation → stale cached bytes served to the editor.
+                // The fix: treat m4date-without-mtime the same as no-date: always set wasAccessed=false
+                // but leave mtime untouched to avoid VS Code's stale-write conflict detection.
+                const initialMtime = 1000;
                 const fakePs = Object.assign(Object.create(Object.getPrototypeOf(testEntries.ps)), testEntries.ps);
-                fakePs.mtime = 1000; // Set initial mtime to a different value
+                fakePs.mtime = initialMtime;
+                fakePs.wasAccessed = true;
 
                 vi.spyOn(DatasetFSProvider.instance as any, "lookup").mockReturnValue(fakePs);
                 vi.spyOn(DatasetFSProvider.instance as any, "lookupParentDirectory").mockReturnValue(testEntries.session);
@@ -1852,7 +1898,8 @@ describe("DatasetFSProvider", () => {
                             {
                                 name: "USER.DATA.PS",
                                 dsorg: "PS",
-                                m4date: "2024-08-08T14:30:15.789Z",
+                                m4date: "2024-08-08",
+                                // mtime intentionally absent — simulates non-ISPF edit (day-level precision only)
                             },
                         ],
                     },
@@ -1864,10 +1911,10 @@ describe("DatasetFSProvider", () => {
 
                 const result = await DatasetFSProvider.instance.stat(testUris.ps);
 
-                // Verify the mtime was updated using just the m4date
-                const expectedTime = dayjs("2024-08-08T14:30:15.789Z").valueOf();
-                expect(result.mtime).toBe(expectedTime);
+                // Cache must be invalidated so the next read fetches from mainframe
                 expect(fakePs.wasAccessed).toBe(false);
+                // mtime must not change — bumping it triggers VS Code's FILE_MODIFIED_SINCE conflict
+                expect(result.mtime).toBe(initialMtime);
             });
 
             it("should not bump mtime when m4date is missing (regression: VS Code FILE_MODIFIED_SINCE)", async () => {

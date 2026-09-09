@@ -154,17 +154,17 @@ export class DatasetFSProvider extends BaseProvider implements vscode.FileSystem
             const ds = items?.[0];
             if (ds != null && "m4date" in ds) {
                 const { m4date, mtime, msec } = ds;
-                if (m4date) {
-                    // Handle both formats: separate mtime/msec fields vs combined in m4date
-                    const newTime = mtime ? dayjs(`${m4date} ${mtime}:${msec || "00"}`).valueOf() : dayjs(m4date).valueOf();
+                if (m4date && mtime) {
+                    // Full intra-day precision available — use timestamp comparison to detect changes.
+                    const newTime = dayjs(`${m4date} ${mtime}:${msec || "00"}`).valueOf();
                     if (entry.mtime != newTime) {
                         entry.mtime = newTime;
                         entry.wasAccessed = false;
                     }
                 } else {
-                    // The data set has no timestamp attributes available. Invalidate the cache to
-                    // force a re-fetch on the next read, but leave `mtime` untouched. Bumping `mtime`
-                    // here triggers VS Code's built-in stale-write detection (see
+                    // Day-level precision only (m4date without mtime), or no date at all.
+                    // Cannot detect same-day edits via timestamp comparison, so always invalidate.
+                    // Do NOT bump mtime — that triggers VS Code's built-in stale-write detection (see
                     // `FileService.validateWriteFile`) to compare the stored model mtime against an
                     // always-advancing stat mtime, falsely raising a "content of the file is newer"
                     // conflict on save. Etag-based conflict detection still runs in `writeFile` via
@@ -975,6 +975,12 @@ export class DatasetFSProvider extends BaseProvider implements vscode.FileSystem
                 const resp = await this.uploadEntry(entry as DsEntry, content, uri, forceUpload, encodingParam);
                 entry = parent.entries.get(basename) as FileEntry;
                 entry.etag = resp.apiResponse.etag;
+                // For PS files, invalidate the cache so the next read re-fetches from mainframe.
+                // PDS members get invalidated via fetchEntriesForDataset when the parent directory
+                // is listed; PS has no directory listing, so we must do it here after a successful upload.
+                if (!(entry as DsEntry).isMember) {
+                    entry.wasAccessed = false;
+                }
             }
             entry.data = content;
             entry.mtime = Date.now();
