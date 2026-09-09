@@ -9,6 +9,7 @@
  *
  */
 
+import * as vscode from "vscode";
 import * as imperative from "@zowe/imperative";
 import { ProfilesCache } from "../profiles/ProfilesCache";
 import { ErrorCorrelator } from "../utils/ErrorCorrelator";
@@ -61,4 +62,15 @@ export interface IApiExplorerExtender {
      * on the returned instance.
      */
     getLocalStorage?(): ILocalStorageAccess;
+
+    /**
+     * Forces a fresh download of the dataset at the given URI, bypassing the cached entry
+     * state, and updates the open editor if provided. Use when the dataset was written via a
+     * path that bypasses ZE's filesystem (e.g. a direct API upload) and the open editor needs
+     * to reflect the new content immediately.
+     *
+     * @param uri A `zowe-ds://` URI pointing to a PS or PDS member
+     * @param options.editor Open editor instance to update after the fetch
+     */
+    fetchDatasetAtUri?(uri: vscode.Uri, options?: { editor?: vscode.TextEditor | null }): Promise<void>;
 }

@@ -32,6 +32,7 @@ import { Constants } from "../configuration/Constants";
 import { ProfilesUtils } from "../utils/ProfilesUtils";
 import { ZoweLogger } from "../tools/ZoweLogger";
 import { LocalStorageAccess } from "../tools/ZoweLocalStorage";
+import { DatasetFSProvider } from "../trees/dataset/DatasetFSProvider";
 
 /**
  * The Zowe Explorer API Register singleton that gets exposed to other VS Code
@@ -265,5 +266,9 @@ export class ZoweExplorerExtender implements IApiExplorerExtender, IZoweExplorer
      */
     public getTableProviderRegistry(): TableProviderRegistry {
         return TableProviderRegistry.getInstance();
+    }
+
+    public async fetchDatasetAtUri(uri: vscode.Uri, options?: { editor?: vscode.TextEditor | null }): Promise<void> {
+        await DatasetFSProvider.instance.fetchDatasetAtUri(uri, options);
     }
 }

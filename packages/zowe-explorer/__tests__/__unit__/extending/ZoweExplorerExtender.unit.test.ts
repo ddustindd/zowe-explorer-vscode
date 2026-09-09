@@ -454,4 +454,19 @@ describe("ZoweExplorerExtender unit tests", () => {
             expect(registry).toHaveProperty("getRegisteredTableIds");
         });
     });
+
+    describe("fetchDatasetAtUri", () => {
+        it("delegates to DatasetFSProvider.instance.fetchDatasetAtUri with the provided options", async () => {
+            const { DatasetFSProvider } = await import("../../../src/trees/dataset/DatasetFSProvider");
+            const fetchMock = vi.spyOn(DatasetFSProvider.instance, "fetchDatasetAtUri").mockResolvedValue(null);
+            const uri = vscode.Uri.parse("zowe-ds://sestest/USER.DATA.PS");
+            const options = { editor: null };
+
+            const blockMocks = createBlockMocks();
+            await blockMocks.instTest.fetchDatasetAtUri(uri, options);
+
+            expect(fetchMock).toHaveBeenCalledWith(uri, options);
+            fetchMock.mockRestore();
+        });
+    });
 });
